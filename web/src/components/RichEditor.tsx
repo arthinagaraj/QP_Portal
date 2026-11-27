@@ -1,62 +1,3 @@
-/*import { useEffect, useRef } from 'react'
-import katex from 'katex'
-import 'katex/dist/katex.min.css'
-
-const SYMBOLS = ['√', '∑', '∫', 'π', 'θ', 'α', 'β', 'λ', 'μ', 'σ', 'Δ', '±', '≤', '≥', '≠', '≈', '∞', '→', '⇒', '∈', '∀', '∃', 'x²', 'x³', '½']
-
-type Props = { id: string; html: string; onChange: (html: string, text: string) => void; disabled?: boolean }
-
-export default function RichEditor({ id, html, onChange, disabled }: Props) {
-  const ref = useRef<HTMLDivElement>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  // set content only when a different question is shown (keeps the cursor while typing)
-  useEffect(() => { if (ref.current) ref.current.innerHTML = html || '' }, [id])
-
-  const emit = () => { const el = ref.current!; onChange(el.innerHTML, el.innerText.trim()) }
-  const exec = (cmd: string, val?: string) => { ref.current!.focus(); document.execCommand(cmd, false, val); emit() }
-
-  const table = () => {
-    const r = prompt('Table size (rows x columns)', '3x3'); if (!r) return
-    const [rows, cols] = r.toLowerCase().split('x').map(n => Math.max(1, Math.min(10, parseInt(n) || 2)))
-    let h = '<table>'
-    for (let i = 0; i < rows; i++) h += '<tr>' + '<td>&nbsp;</td>'.repeat(cols) + '</tr>'
-    exec('insertHTML', h + '</table><br>')
-  }
-  const formula = () => {
-    const tex = prompt('Formula in LaTeX, e.g.  \\int_0^1 x^2\\,dx   or   T(n)=2T(n/2)+n'); if (!tex) return
-    const h = katex.renderToString(tex, { throwOnError: false })
-    exec('insertHTML', `<span class="formula" contenteditable="false">${h}</span>&nbsp;`)
-  }
-  const insertImageFile = (f: File) => {
-    const rd = new FileReader(); rd.onload = () => exec('insertImage', rd.result as string); rd.readAsDataURL(f)
-  }
-  const onFile = (e: any) => { const f = e.target.files?.[0]; if (f) insertImageFile(f); e.target.value = '' }
-  const onPaste = (e: React.ClipboardEvent) => {
-    const imgs = Array.from(e.clipboardData.files || []).filter(f => f.type.startsWith('image/'))
-    if (imgs.length) { e.preventDefault(); imgs.forEach(insertImageFile) } else setTimeout(emit, 0)
-  }
-
-  return (
-    <div>
-      {!disabled && (
-        <div className="tb noprint">
-          <button type="button" className="g" onClick={() => exec('bold')}><b>B</b></button>
-          <button type="button" className="g" onClick={() => exec('italic')}><i>I</i></button>
-          <button type="button" className="g" onClick={() => exec('subscript')}>x₂</button>
-          <button type="button" className="g" onClick={() => exec('superscript')}>x²</button>
-          <button type="button" className="g" onClick={table}>▦ Table</button>
-          <button type="button" className="g" onClick={() => fileRef.current?.click()}>🖼 Image</button>
-          <input type="file" accept="image/*" hidden ref={fileRef} onChange={onFile} />
-          <button type="button" className="g" onClick={formula}>ƒx Formula</button>
-          {SYMBOLS.map(s => <button type="button" key={s} className="g" onClick={() => exec('insertText', s)}>{s}</button>)}
-        </div>
-      )}
-      <div ref={ref} className="ed" contentEditable={!disabled} suppressContentEditableWarning
-           onInput={emit} onPaste={onPaste} />
-    </div>
-  )
-}*/
 import { useEffect, useRef, useState } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
@@ -77,6 +18,41 @@ const SNIPPETS: [string, string][] = [
 
 type Props = { id: string; html: string; onChange: (html: string, text: string) => void; disabled?: boolean }
 
+// LaTeX typed or pasted between $…$ or $$…$$ is turned into a rendered formula (same as the ƒx Formula button)
+const TEX_RE = /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/
+// accept LaTeX pasted with its delimiters: $…$, $$…$$, \(…\), \[…\]
+const stripDelims = (s: string) => s.trim()
+  .replace(/^\$\$([\s\S]*)\$\$$/, '$1').replace(/^\$([\s\S]*)\$$/, '$1')
+  .replace(/^\\\(([\s\S]*)\\\)$/, '$1').replace(/^\\\[([\s\S]*)\\\]$/, '$1').trim()
+
+function formulaNode(tex: string): HTMLElement {
+  const s = document.createElement('span')
+  s.className = 'formula'; s.contentEditable = 'false'; s.dataset.tex = tex
+  s.innerHTML = katex.renderToString(tex, { throwOnError: false })
+  return s
+}
+function convertDollarTex(root: HTMLElement): Node | null {
+  let last: Node | null = null
+  for (let guard = 0; guard < 50; guard++) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: n => (n.parentElement?.closest('.formula') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT)
+    })
+    let node: Text | null = null, m: RegExpExecArray | null = null
+    while (walker.nextNode()) { const c = walker.currentNode as Text; m = TEX_RE.exec(c.data); if (m) { node = c; break } }
+    if (!node || !m) break
+    const tex = (m[1] ?? m[2]).trim()
+    if (!tex) break
+    const after = node.splitText(m.index)          // after = "$...$rest"
+    const rest = after.splitText(m[0].length)       // after = "$...$", rest = "rest"
+    const f = formulaNode(tex)
+    after.replaceWith(f)
+    const space = document.createTextNode('\u00a0')
+    rest.parentNode!.insertBefore(space, rest)
+    last = space
+  }
+  return last
+}
+
 export default function RichEditor({ id, html, onChange, disabled }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -86,9 +62,27 @@ export default function RichEditor({ id, html, onChange, disabled }: Props) {
   const [tex, setTex] = useState('')
 
   // set content only when a different question is shown (keeps the cursor while typing)
-  useEffect(() => { if (ref.current) ref.current.innerHTML = html || '' }, [id])
+  useEffect(() => {
+    if (!ref.current) return
+    ref.current.innerHTML = html || ''
+    if (convertDollarTex(ref.current)) emit()       // e.g. an AI suggestion containing $…$
+  }, [id])
 
   const emit = () => { const el = ref.current!; onChange(el.innerHTML, el.innerText.trim()) }
+
+  // convert $…$ to a formula and put the cursor right after it
+  const convertNow = () => {
+    const el = ref.current; if (!el) return
+    const last = convertDollarTex(el)
+    if (!last) return
+    const sel = window.getSelection(); const r = document.createRange()
+    r.setStart(last, (last as Text).length); r.collapse(true)
+    sel?.removeAllRanges(); sel?.addRange(r); saveRange()
+  }
+  const onInput = (e: React.FormEvent) => {
+    if ((e.nativeEvent as InputEvent).data?.includes('$')) convertNow()
+    emit()
+  }
 
   const saveRange = () => {
     const sel = window.getSelection()
@@ -119,13 +113,14 @@ export default function RichEditor({ id, html, onChange, disabled }: Props) {
     setTimeout(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = a + snip.length }, 0)
   }
   const insertFormula = () => {
-    if (!tex.trim()) { setFx(false); return }
-    const h = katex.renderToString(tex, { throwOnError: false })
+    const tx = stripDelims(tex)
+    if (!tx) { setFx(false); return }
+    const h = katex.renderToString(tx, { throwOnError: false })
     setFx(false)
-    exec('insertHTML', `<span class="formula" contenteditable="false" data-tex="${tex.replace(/"/g, '&quot;')}">${h}</span>&nbsp;`)
+    exec('insertHTML', `<span class="formula" contenteditable="false" data-tex="${tx.replace(/"/g, '&quot;')}">${h}</span>&nbsp;`)
   }
   let preview = ''
-  try { preview = tex.trim() ? katex.renderToString(tex, { throwOnError: true, displayMode: true }) : '' }
+  try { preview = tex.trim() ? katex.renderToString(stripDelims(tex), { throwOnError: true, displayMode: true }) : '' }
   catch (e: any) { preview = `<span style="color:#c62828;font-size:12px">${(e.message || 'Formula error').replace(/</g, '&lt;')}</span>` }
 
   const insertImageFile = (f: File) => {
@@ -134,7 +129,7 @@ export default function RichEditor({ id, html, onChange, disabled }: Props) {
   const onFile = (e: any) => { const f = e.target.files?.[0]; if (f) insertImageFile(f); e.target.value = '' }
   const onPaste = (e: React.ClipboardEvent) => {
     const imgs = Array.from(e.clipboardData.files || []).filter(f => f.type.startsWith('image/'))
-    if (imgs.length) { e.preventDefault(); saveRange(); imgs.forEach(insertImageFile) } else setTimeout(emit, 0)
+    if (imgs.length) { e.preventDefault(); saveRange(); imgs.forEach(insertImageFile) } else setTimeout(() => { convertNow(); emit() }, 0)
   }
 
   return (
@@ -172,7 +167,7 @@ export default function RichEditor({ id, html, onChange, disabled }: Props) {
       )}
 
       <div ref={ref} className="ed" contentEditable={!disabled} suppressContentEditableWarning
-           onInput={emit} onPaste={onPaste} onKeyUp={saveRange} onMouseUp={saveRange} onBlur={saveRange} />
+           onInput={onInput} onPaste={onPaste} onKeyUp={saveRange} onMouseUp={saveRange} onBlur={saveRange} />
     </div>
   )
 }

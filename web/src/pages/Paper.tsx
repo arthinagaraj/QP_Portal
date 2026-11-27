@@ -35,6 +35,7 @@ export default function Paper() {
   const [claim, setClaim] = useState<any>(null)
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState<any>(null)
+  const [sug, setSug] = useState<Record<string, any>>({})
 
   async function load() {
     try {
@@ -164,6 +165,53 @@ export default function Paper() {
     api('DELETE', `/api/setter/assignments/${id}/questions?partName=${encodeURIComponent(sl.partName)}&qNo=${sl.qNo}&option=${sl.option}&subLabel=${sub}`).catch(() => { })
   }
 
+  /* ---------- 💡 question suggestions for the unit (LLM or syllabus templates) ---------- */
+  const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  function tooClose(text: string) {
+    const a = wordSet(text)
+    return allEntries().some((o: any) => {
+      const b = wordSet(res[ekOf(o.sl, o.sub)]?.text); if (b.size < 3 || a.size < 3) return false
+      let i = 0; a.forEach(w => { if (b.has(w)) i++ })
+      return i / Math.min(a.size, b.size) >= 0.75
+    })
+  }
+  async function suggest(sl: any, sub = '') {
+    const ek = ekOf(sl, sub)
+    const unitNo = sl.unitNo ?? res[keyOf(sl)]?.unitNo ?? 1
+    const marks = sub ? Number(res[ek]?.marks || sl.marks) : Number(sl.marks)
+    setSug(x => ({ ...x, [ek]: { loading: true } }))
+    try {
+      const r: any = await api('POST', `/api/setter/assignments/${id}/suggest`, { unitNo, marks, count: 6 })
+      setSug(x => ({ ...x, [ek]: { ...r, items: r.items.filter((q: any) => !tooClose(q.text)), unitNo } }))
+    } catch (ex: any) { setSug(x => ({ ...x, [ek]: { err: ex.message } })) }
+  }
+  function useSuggestion(sl: any, sub: string, q: any) {
+    const ek = ekOf(sl, sub); const cur = res[ek] || {}
+    if ((cur.text || '').trim() && !confirm('Replace the question you have typed with this suggestion?')) return
+    update(sl, { html: esc(q.text), text: q.text, v: (cur.v || 0) + 1 }, 0, undefined, sub)
+    setSug(x => ({ ...x, [ek]: undefined }))
+  }
+  function suggestBox(sl: any, sub = '') {
+    const ek = ekOf(sl, sub); const g = sug[ek]
+    return (
+      <div className="sug">
+        <button className="g sm" disabled={g?.loading} onClick={() => suggest(sl, sub)}>
+          {g?.loading ? 'Thinking…' : g?.items ? '💡 More suggestions' : '💡 Suggest questions'}</button>
+        {g?.items && <button className="g sm" onClick={() => setSug(x => ({ ...x, [ek]: undefined }))}>Hide</button>}
+        {g?.err && <span className="bad" style={{ fontSize: 12 }}> {g.err}</span>}
+        {g?.items && (
+          <div className="sug-list">
+            <div className="mu" style={{ fontSize: 12 }}>Suggestions from Unit {g.unitNo} syllabus · {g.source}{g.note ? ' · ' + g.note : ''} – edit after inserting; the AI check runs again.</div>
+            {g.items.length === 0 && <div className="mu">No new suggestions (all were close to questions already in the paper). Try again.</div>}
+            {g.items.map((q: any, i: number) => (
+              <div key={i} className="sug-item">
+                <span className="chip">{q.btl}</span> <span>{q.text}</span>
+                <button className="sm" onClick={() => useSuggestion(sl, sub, q)}>Use</button>
+              </div>))}
+          </div>)}
+      </div>)
+  }
+
   /* ---------- colour-coded AI validation: red / yellow / blue / green ---------- */
   function similarTo(sl: any, sub: string): string[] {
     const a = wordSet(res[ekOf(sl, sub)]?.text)
@@ -276,7 +324,8 @@ export default function Paper() {
           {sp.length === 0 ? (
             <>
               <div style={{ margin: '4px 0' }}>{badge(sl)}</div>
-              <RichEditor id={`${id}-${k}`} html={r.html || ''} onChange={(html, text) => update(sl, { html, text })} />
+              {suggestBox(sl)}
+              <RichEditor key={`${k}-${r.v || 0}`} id={`${id}-${k}-${r.v || 0}`} html={r.html || ''} onChange={(html, text) => update(sl, { html, text })} />
             </>
           ) : (
             <>
@@ -292,7 +341,8 @@ export default function Paper() {
                       {sub === sp[sp.length - 1] && sp.length > 2 && <button className="g sm" onClick={() => removeSub(sl, sub)}>Remove ({sub})</button>}
                     </div>
                     <div style={{ margin: '4px 0' }}>{badge(sl, sub)}</div>
-                    <RichEditor id={`${id}-${ekOf(sl, sub)}`} html={e.html || ''} onChange={(html, text) => update(sl, { html, text }, 800, undefined, sub)} />
+                    {suggestBox(sl, sub)}
+                    <RichEditor key={`${ekOf(sl, sub)}-${e.v || 0}`} id={`${id}-${ekOf(sl, sub)}-${e.v || 0}`} html={e.html || ''} onChange={(html, text) => update(sl, { html, text }, 800, undefined, sub)} />
                   </div>)
               })}
               <div className="flex" style={{ marginTop: 6 }}>

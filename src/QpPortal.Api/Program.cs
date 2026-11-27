@@ -45,6 +45,7 @@ foreach (var p in Perms.All)
 
 builder.Services.AddControllers();
 builder.Services.AddScoped<EmailService>();
+builder.Services.AddScoped<QpPortal.Api.Services.QuestionSuggester>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

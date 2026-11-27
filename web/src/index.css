@@ -64,3 +64,10 @@ mark{background:#ffe27a;padding:0 1px}
   .qp tr { page-break-inside: avoid; }
   .qp thead { display: table-header-group; }
 }
+
+/* ---- 💡 question suggestions ---- */
+.sug { margin: 4px 0 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sug-list { flex-basis: 100%; background: #fffdf5; border: 1px dashed #e0c97a; border-radius: 8px; padding: 8px 10px; }
+.sug-item { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid #f1e6bf; }
+.sug-item:first-of-type { border-top: none; }
+.sug-item > span:nth-child(2) { flex: 1; }
