@@ -254,4 +254,17 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
             Claim = new { c.QpFee, c.TravelAllowance, c.Gross, c.TdsPercent, c.Tds, c.Net }
         });
     }
+
+    [HttpGet("assignments/{id:int}/claim.pdf")]
+    public async Task<IActionResult> ClaimPdfDownload(int id)
+    {
+        var a = await Mine(id);
+        if (a is null) return NotFound();
+        var c = await db.Claims.FindAsync(id);
+        if (c is null) return BadRequest("Claim is available after the question paper is submitted.");
+        var u = await db.Users.FindAsync(Me);
+        var b = await db.BankDetails.FindAsync(Me);
+        var pdf = ClaimPdf.Build($"{a.Course.Code} - {a.Course.Title}", a.ExamSession, a.SubmittedAt, u!, b!, c);
+        return File(pdf, "application/pdf", $"Claim_{a.Course.Code}.pdf");
+    }
 }

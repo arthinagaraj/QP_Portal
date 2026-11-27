@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QpPortal.Api.Auth;
 using QpPortal.Api.Data;
+using QpPortal.Api.Services;
 
 namespace QpPortal.Api.Controllers;
 
@@ -119,5 +120,19 @@ public class ReportsController(AppDb db) : ControllerBase
         wb.SaveAs(ms);
         return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     $"QP_Claims_Bank_Settlement_{DateTime.Now:yyyyMMdd}.xlsx");
+    }
+
+    [HttpGet("claims/{assignmentId:int}/pdf")]
+    [Authorize(Policy = Perms.ClaimExport)]
+    public async Task<IActionResult> ClaimPdfForExamCell(int assignmentId)
+    {
+        var a = await db.Assignments.Include(x => x.Course).Include(x => x.Setter)
+                                    .FirstOrDefaultAsync(x => x.Id == assignmentId);
+        var c = await db.Claims.FindAsync(assignmentId);
+        if (a is null || c is null) return NotFound("No claim for this assignment yet.");
+        var b = await db.BankDetails.FindAsync(a.SetterId);
+        if (b is null) return BadRequest("Setter has no bank details.");
+        var pdf = ClaimPdf.Build($"{a.Course.Code} - {a.Course.Title}", a.ExamSession, a.SubmittedAt, a.Setter, b, c);
+        return File(pdf, "application/pdf", $"Claim_{a.Course.Code}_{a.Setter.Name.Replace(' ', '_')}.pdf");
     }
 }

@@ -9,6 +9,8 @@ using QpPortal.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
 var cs = builder.Configuration.GetConnectionString("Db")
          ?? throw new InvalidOperationException("Connection string 'Db' is missing.");
 
