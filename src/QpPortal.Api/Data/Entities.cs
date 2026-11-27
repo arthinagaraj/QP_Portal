@@ -134,3 +134,56 @@ public class Assignment
     public DateTime? InviteSentAt { get; set; }
     public DateTime? SubmittedAt { get; set; }
 }
+public class BankDetail
+{
+    public int UserId { get; set; }
+    public string AccountHolder { get; set; } = "";
+    public string AccountNumber { get; set; } = "";
+    public string BankName { get; set; } = "";
+    public string? Branch { get; set; }
+    public string Ifsc { get; set; } = "";
+    public string Pan { get; set; } = "";
+    public string Address { get; set; } = "";
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class Question
+{
+    public int Id { get; set; }
+    public int AssignmentId { get; set; }
+    public string PartName { get; set; } = "";
+    public int QNo { get; set; }
+    public string OptionLetter { get; set; } = "";
+    public int UnitNo { get; set; }
+    public string BodyHtml { get; set; } = "";
+    public string PlainText { get; set; } = "";
+    public decimal Marks { get; set; }
+    public string Btl { get; set; } = "K2";
+    public string BtlSource { get; set; } = "AI";
+    public decimal MatchScore { get; set; }
+    public string SyllabusVerdict { get; set; } = "Out";
+    public string Clarity { get; set; } = "Incomplete";
+    public string? AiNotes { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class ClaimRate
+{
+    public string SetterType { get; set; } = "";
+    public decimal QpFee { get; set; }
+    public decimal TravelAllowance { get; set; }
+    public decimal TdsPercent { get; set; }
+}
+
+public class QpClaim
+{
+    public int AssignmentId { get; set; }
+    public string SetterType { get; set; } = "";
+    public decimal QpFee { get; set; }
+    public decimal TravelAllowance { get; set; }
+    public decimal Gross { get; set; }
+    public decimal TdsPercent { get; set; }
+    public decimal Tds { get; set; }
+    public decimal Net { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}

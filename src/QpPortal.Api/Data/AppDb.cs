@@ -16,6 +16,13 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<QpTemplate> QpTemplates => Set<QpTemplate>();
     public DbSet<QpTemplatePart> QpTemplateParts => Set<QpTemplatePart>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
+    public DbSet<BankDetail> BankDetails => Set<BankDetail>();
+    public DbSet<Question> Questions => Set<Question>();
+    public DbSet<ClaimRate> ClaimRates => Set<ClaimRate>();
+    public DbSet<QpClaim> Claims => Set<QpClaim>();
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder c) =>
+        c.Properties<decimal>().HavePrecision(10, 2);
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -27,5 +34,10 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<QpTemplate>().HasMany(t => t.Parts).WithOne().HasForeignKey(p => p.TemplateId);
         b.Entity<QpTemplatePart>().Property(x => x.MarksEach).HasPrecision(5, 1);
         b.Entity<Assignment>().HasOne(a => a.Setter).WithMany().HasForeignKey(a => a.SetterId);
+        b.Entity<BankDetail>().HasKey(x => x.UserId);
+        b.Entity<Question>().Property(x => x.Marks).HasPrecision(5, 1);
+        b.Entity<Question>().Property(x => x.MatchScore).HasPrecision(4, 2);
+        b.Entity<ClaimRate>().HasKey(x => x.SetterType);
+        b.Entity<QpClaim>().HasKey(x => x.AssignmentId);
     }
 }
