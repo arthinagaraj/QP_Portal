@@ -7,6 +7,7 @@ import SetterLink from './pages/SetterLink'
 import Admin from './pages/Admin'
 import MyAssignments from './pages/MyAssignments'
 import Paper from './pages/Paper'
+import QpView from './pages/QpView'
 
 function Layout() {
   if (!session.get()) return <Navigate to="/" replace />
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="admin" element={<Admin />} />
           <Route path="my" element={<MyAssignments />} />
           <Route path="paper/:id" element={<Paper />} />
+          <Route path="qp/:id" element={<QpView />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

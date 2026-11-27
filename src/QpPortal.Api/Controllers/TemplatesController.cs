@@ -14,7 +14,7 @@ public class TemplatesController(AppDb db) : ControllerBase
     public const int UnitsPerCourse = 5;
 
     public record PartDto(string PartName, string Title, string Distribution, int QuestionCount,
-                          decimal MarksEach, bool IsEitherOr);
+                          decimal MarksEach, bool IsEitherOr, int MaxSubdivisions = 0);
     public record TemplateDto(int RegulationId, string ExamType, string Name, string Duration,
                               decimal MaxMarks, string? Instructions, List<PartDto> Parts);
 
@@ -27,7 +27,7 @@ public class TemplatesController(AppDb db) : ControllerBase
         t.Instructions, t.Version, t.Status, Total = Total(t.Parts),
         Parts = t.Parts.OrderBy(p => p.DisplayOrder).Select(p => new
         {
-            p.PartName, p.Title, p.Distribution, p.QuestionCount, p.MarksEach, p.IsEitherOr,
+            p.PartName, p.Title, p.Distribution, p.QuestionCount, p.MarksEach, p.IsEitherOr, p.MaxSubdivisions,
             TotalQuestions = p.Distribution == "PerUnit" ? p.QuestionCount * UnitsPerCourse : p.QuestionCount,
             PartMarks = (p.Distribution == "PerUnit" ? p.QuestionCount * UnitsPerCourse : p.QuestionCount) * p.MarksEach
         })
@@ -40,9 +40,19 @@ public class TemplatesController(AppDb db) : ControllerBase
         {
             if (p.Distribution != "PerUnit" && p.Distribution != "AnyUnit") return $"Part {p.PartName}: Distribution must be PerUnit or AnyUnit.";
             if (p.QuestionCount <= 0 || p.MarksEach <= 0) return $"Part {p.PartName}: count and marks must be positive.";
+            if (p.MaxSubdivisions != 0 && (p.MaxSubdivisions < 2 || p.MaxSubdivisions > 4))
+                return $"Part {p.PartName}: sub-divisions must be 0 (not allowed) or 2 to 4.";
+            if (p.MaxSubdivisions >= 2 && p.MarksEach < 4) return $"Part {p.PartName}: questions below 4 marks cannot be split.";
         }
         return null;
     }
+
+    static List<QpTemplatePart> MapParts(List<PartDto> parts) =>
+        parts.Select((p, i) => new QpTemplatePart
+        {
+            PartName = p.PartName, Title = p.Title, Distribution = p.Distribution, QuestionCount = p.QuestionCount,
+            MarksEach = p.MarksEach, IsEitherOr = p.IsEitherOr, MaxSubdivisions = p.MaxSubdivisions, DisplayOrder = i + 1
+        }).ToList();
 
     [HttpGet]
     public async Task<IActionResult> List(int? regulationId) =>
@@ -61,12 +71,7 @@ public class TemplatesController(AppDb db) : ControllerBase
         var t = new QpTemplate
         {
             RegulationId = dto.RegulationId, ExamType = dto.ExamType, Name = dto.Name, Duration = dto.Duration,
-            MaxMarks = dto.MaxMarks, Instructions = dto.Instructions, Version = version,
-            Parts = dto.Parts.Select((p, i) => new QpTemplatePart
-            {
-                PartName = p.PartName, Title = p.Title, Distribution = p.Distribution, QuestionCount = p.QuestionCount,
-                MarksEach = p.MarksEach, IsEitherOr = p.IsEitherOr, DisplayOrder = i + 1
-            }).ToList()
+            MaxMarks = dto.MaxMarks, Instructions = dto.Instructions, Version = version, Parts = MapParts(dto.Parts)
         };
         db.QpTemplates.Add(t);
         await db.SaveChangesAsync();
@@ -83,11 +88,7 @@ public class TemplatesController(AppDb db) : ControllerBase
         if (t.Status != "Draft") return BadRequest("Only a Draft template can be edited. Create a new version instead.");
         t.Name = dto.Name; t.Duration = dto.Duration; t.MaxMarks = dto.MaxMarks; t.Instructions = dto.Instructions;
         db.QpTemplateParts.RemoveRange(t.Parts);
-        t.Parts = dto.Parts.Select((p, i) => new QpTemplatePart
-        {
-            PartName = p.PartName, Title = p.Title, Distribution = p.Distribution, QuestionCount = p.QuestionCount,
-            MarksEach = p.MarksEach, IsEitherOr = p.IsEitherOr, DisplayOrder = i + 1
-        }).ToList();
+        t.Parts = MapParts(dto.Parts);
         await db.SaveChangesAsync();
         return Ok(Shape(t));
     }

@@ -172,7 +172,9 @@ export default function Paper() {
       const b = wordSet(res[ekOf(o.sl, o.sub)]?.text)
       if (b.size < 3) return false
       let i = 0; a.forEach(w => { if (b.has(w)) i++ })
-      return i / (a.size + b.size - i) > 0.6
+      const jaccard = i / (a.size + b.size - i)          // overall word overlap
+      const contained = i / Math.min(a.size, b.size)     // shorter question's keywords found inside the other
+      return jaccard >= 0.5 || (contained >= 0.75 && i >= 3)
     }).map((o: any) => entryLabel(o.sl, o.sub))
   }
 

@@ -10,7 +10,7 @@ using QpPortal.Api.Services;
 namespace QpPortal.Api.Controllers;
 
 public record Slot(string PartName, string PartTitle, int QNo, string Option, decimal Marks, int? UnitNo,
-                   string Distribution, bool EitherOr);
+                   string Distribution, bool EitherOr, int MaxSub);
 
 [ApiController]
 [Route("api/setter")]
@@ -21,7 +21,9 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
         string Address, string AccountHolder, string AccountNumber, string ConfirmAccountNumber,
         string BankName, string? Branch, string Ifsc, string Pan);
     public record SaveQuestionDto(string PartName, int QNo, string? Option, int UnitNo,
-        string BodyHtml, string PlainText, string? Btl);
+        string BodyHtml, string PlainText, string? Btl, string? SubLabel = null, decimal? Marks = null);
+
+    public static readonly string[] SubLabels = ["i", "ii", "iii", "iv"];
 
     int Me => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -39,7 +41,7 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
                     for (var k = 0; k < p.QuestionCount; k++)
                     {
                         q++;
-                        foreach (var o in opts) list.Add(new Slot(p.PartName, p.Title, q, o, p.MarksEach, u, p.Distribution, p.IsEitherOr));
+                        foreach (var o in opts) list.Add(new Slot(p.PartName, p.Title, q, o, p.MarksEach, u, p.Distribution, p.IsEitherOr, p.MaxSubdivisions));
                     }
             }
             else
@@ -47,12 +49,20 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
                 for (var k = 0; k < p.QuestionCount; k++)
                 {
                     q++;
-                    foreach (var o in opts) list.Add(new Slot(p.PartName, p.Title, q, o, p.MarksEach, null, p.Distribution, p.IsEitherOr));
+                    foreach (var o in opts) list.Add(new Slot(p.PartName, p.Title, q, o, p.MarksEach, null, p.Distribution, p.IsEitherOr, p.MaxSubdivisions));
                 }
             }
         }
         return list;
     }
+
+    static bool SameSlot(Question x, Slot s) => x.PartName == s.PartName && x.QNo == s.QNo && x.OptionLetter == s.Option;
+
+    static object QShape(Question q) => new
+    {
+        q.SubLabel, q.Marks, q.UnitNo, q.BodyHtml, q.PlainText, q.Btl, q.BtlSource, q.MatchScore, q.SyllabusVerdict, q.Clarity,
+        Notes = (q.AiNotes ?? "").Split('|', StringSplitOptions.RemoveEmptyEntries)
+    };
 
     async Task<Assignment?> Mine(int id) =>
         await db.Assignments.Include(a => a.Course).ThenInclude(c => c.Units)
@@ -116,7 +126,7 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
         return Ok(new { a.Id });
     }
 
-    // Everything the split-screen page needs: framework, units (syllabus), slots with saved questions
+    // Everything the split-screen page needs: framework, units (syllabus), slots with saved questions / sub-divisions
     [HttpGet("assignments/{id:int}/structure")]
     public async Task<IActionResult> Structure(int id)
     {
@@ -127,15 +137,13 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
 
         var slots = Slots(a.Template, units.Count).Select(s =>
         {
-            var q = saved.FirstOrDefault(x => x.PartName == s.PartName && x.QNo == s.QNo && x.OptionLetter == s.Option);
+            var mine = saved.Where(x => SameSlot(x, s)).ToList();
+            var whole = mine.FirstOrDefault(x => x.SubLabel == "");
             return new
             {
-                s.PartName, s.PartTitle, s.QNo, s.Option, s.Marks, s.UnitNo, s.Distribution, s.EitherOr,
-                Question = q is null ? null : new
-                {
-                    q.UnitNo, q.BodyHtml, q.PlainText, q.Btl, q.BtlSource, q.MatchScore, q.SyllabusVerdict, q.Clarity,
-                    Notes = (q.AiNotes ?? "").Split('|', StringSplitOptions.RemoveEmptyEntries)
-                }
+                s.PartName, s.PartTitle, s.QNo, s.Option, s.Marks, s.UnitNo, s.Distribution, s.EitherOr, s.MaxSub,
+                Question = whole is null ? null : QShape(whole),
+                Subs = mine.Where(x => x.SubLabel != "").OrderBy(x => Array.IndexOf(SubLabels, x.SubLabel)).Select(QShape).ToList()
             };
         });
 
@@ -150,7 +158,7 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
         });
     }
 
-    // Save one question -> AI agent checks it immediately
+    // Save one question (or one sub-division) -> AI agent checks it immediately
     [HttpPut("assignments/{id:int}/questions")]
     public async Task<IActionResult> SaveQuestion(int id, SaveQuestionDto d)
     {
@@ -167,29 +175,64 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
         if (string.IsNullOrWhiteSpace(d.PlainText) && !Regex.IsMatch(d.BodyHtml ?? "", "<img", RegexOptions.IgnoreCase))
             return BadRequest("Question text is empty.");
 
-        var info = units.Select(u => new UnitInfo(u.UnitNo, u.Title, u.Topics)).ToList();
-        var r = QuestionAnalyzer.Analyze(d.PlainText ?? "", d.BodyHtml ?? "", slot.Marks, unitNo, info);
+        var sub = d.SubLabel ?? "";
+        var marks = slot.Marks;
+        if (sub != "")
+        {
+            var idx = Array.IndexOf(SubLabels, sub);
+            if (slot.MaxSub < 2 || idx < 0 || idx >= slot.MaxSub)
+                return BadRequest($"Part {slot.PartName} allows at most {slot.MaxSub} sub-divisions.");
+            if (d.Marks is null || d.Marks <= 0 || d.Marks >= slot.Marks)
+                return BadRequest($"Sub-division marks must be between 1 and {slot.Marks - 1}.");
+            marks = d.Marks.Value;
+        }
 
-        var q = await db.Questions.FirstOrDefaultAsync(x => x.AssignmentId == id && x.PartName == slot.PartName
-                                                         && x.QNo == slot.QNo && x.OptionLetter == opt);
+        var info = units.Select(u => new UnitInfo(u.UnitNo, u.Title, u.Topics)).ToList();
+        var r = QuestionAnalyzer.Analyze(d.PlainText ?? "", d.BodyHtml ?? "", marks, unitNo, info);
+
+        var mine = await db.Questions.Where(x => x.AssignmentId == id && x.PartName == slot.PartName
+                                              && x.QNo == slot.QNo && x.OptionLetter == opt).ToListAsync();
+        // a question is either whole or split: saving one form removes the other
+        db.Questions.RemoveRange(mine.Where(x => sub == "" ? x.SubLabel != "" : x.SubLabel == ""));
+
+        var q = mine.FirstOrDefault(x => x.SubLabel == sub);
         if (q is null)
         {
-            q = new Question { AssignmentId = id, PartName = slot.PartName, QNo = slot.QNo, OptionLetter = opt };
+            q = new Question { AssignmentId = id, PartName = slot.PartName, QNo = slot.QNo, OptionLetter = opt, SubLabel = sub };
             db.Questions.Add(q);
         }
-        q.UnitNo = unitNo; q.BodyHtml = d.BodyHtml ?? ""; q.PlainText = d.PlainText ?? ""; q.Marks = slot.Marks;
+        q.UnitNo = unitNo; q.BodyHtml = d.BodyHtml ?? ""; q.PlainText = d.PlainText ?? ""; q.Marks = marks;
         q.Btl = string.IsNullOrEmpty(d.Btl) ? r.Btl : d.Btl;
         q.BtlSource = string.IsNullOrEmpty(d.Btl) || d.Btl == r.Btl ? "AI" : "Setter";
         q.MatchScore = r.MatchScore; q.SyllabusVerdict = r.SyllabusVerdict; q.Clarity = r.Clarity;
         q.AiNotes = string.Join("|", r.Notes); q.UpdatedAt = DateTime.UtcNow;
         if (a.Status == "Assigned") a.Status = "InProgress";
+
+        // keep all parts of a split AnyUnit question on the same unit
+        foreach (var other in mine.Where(x => x != q && x.SubLabel != "" && sub != "")) other.UnitNo = unitNo;
+
         await db.SaveChangesAsync();
 
         return Ok(new { q.Btl, q.BtlSource, AiBtl = r.Btl, r.Verb, r.MatchScore, r.SyllabusVerdict, r.BetterUnit,
-                        r.Clarity, r.Notes, r.Matched, r.NotInSyllabus });
+                        r.Clarity, r.Notes, r.Matched, r.NotInSyllabus, q.Marks, q.SubLabel });
     }
 
-    // Final submit: everything filled, in syllabus and complete -> claim calculated -> locked
+    // Remove one sub-division, e.g. (iii)
+    [HttpDelete("assignments/{id:int}/questions")]
+    public async Task<IActionResult> DeleteQuestion(int id, string partName, int qNo, string? option, string? subLabel)
+    {
+        var a = await Mine(id);
+        if (a is null) return NotFound();
+        if (a.Status == "Submitted") return BadRequest("This question paper is already submitted and locked.");
+        var q = await db.Questions.FirstOrDefaultAsync(x => x.AssignmentId == id && x.PartName == partName && x.QNo == qNo
+                                                         && x.OptionLetter == (option ?? "") && x.SubLabel == (subLabel ?? ""));
+        if (q is null) return Ok(new { deleted = false });
+        db.Questions.Remove(q);
+        await db.SaveChangesAsync();
+        return Ok(new { deleted = true });
+    }
+
+    // Final submit: everything filled, in syllabus, complete, sub-division marks add up -> claim -> locked
     [HttpPost("assignments/{id:int}/submit")]
     public async Task<IActionResult> Submit(int id)
     {
@@ -204,10 +247,20 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
         foreach (var s in Slots(a.Template, a.Course.Units.Count))
         {
             var label = $"Part {s.PartName} Q{s.QNo}{(s.Option == "" ? "" : "(" + s.Option + ")")}";
-            var q = saved.FirstOrDefault(x => x.PartName == s.PartName && x.QNo == s.QNo && x.OptionLetter == s.Option);
-            if (q is null) problems.Add($"{label}: not entered.");
-            else if (q.SyllabusVerdict != "In") problems.Add($"{label}: deviates more than 50% from the unit syllabus.");
-            else if (q.Clarity != "Complete") problems.Add($"{label}: incomplete - {q.AiNotes?.Replace("|", "; ")}");
+            var mine = saved.Where(x => SameSlot(x, s)).ToList();
+            var subs = mine.Where(x => x.SubLabel != "").ToList();
+            var check = subs.Count > 0 ? subs : mine.Where(x => x.SubLabel == "").ToList();
+
+            if (check.Count == 0) { problems.Add($"{label}: not entered."); continue; }
+            if (subs.Count == 1) problems.Add($"{label}: has only one sub-division - add another or remove the split.");
+            if (subs.Count > 0 && subs.Sum(x => x.Marks) != s.Marks)
+                problems.Add($"{label}: sub-division marks add up to {subs.Sum(x => x.Marks):0.#}, must be {s.Marks:0.#}.");
+            foreach (var q in check)
+            {
+                var l = q.SubLabel == "" ? label : $"{label}({q.SubLabel})";
+                if (q.SyllabusVerdict != "In") problems.Add($"{l}: deviates more than 50% from the unit syllabus.");
+                else if (q.Clarity != "Complete") problems.Add($"{l}: incomplete - {q.AiNotes?.Replace("|", "; ")}");
+            }
         }
         if (problems.Count > 0) return BadRequest(new { problems });
 
@@ -255,6 +308,7 @@ public class SetterController(AppDb db, EmailService email) : ControllerBase
         });
     }
 
+    // Claim PDF (Step 5b) - delete this method if you did not add Services/ClaimPdf.cs
     [HttpGet("assignments/{id:int}/claim.pdf")]
     public async Task<IActionResult> ClaimPdfDownload(int id)
     {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api, download, session } from '../api'
 import RichEditor from '../components/RichEditor'
 
@@ -30,7 +31,7 @@ export default function Admin() {
 }
 
 function Sample({ h, r }: { h: string[]; r: string[] }) {
-  return <div className="sc"><table><thead><tr>{h.map(x => <th key={x}>{x}</th>)}</tr></thead>
+  return <div className="sc"><p className="mu" style={{ margin: '4px 0' }}>Excel format – column headings with one example row (not your data):</p><table><thead><tr>{h.map(x => <th key={x}>{x}</th>)}</tr></thead>
     <tbody><tr>{r.map((x, i) => <td key={i}>{x}</td>)}</tr></tbody></table></div>
 }
 
@@ -39,7 +40,10 @@ function UploadTab() {
   const [msg, setMsg] = useState<Record<string, any>>({})
   const [courses, setCourses] = useState<any[]>([])
   const [setters, setSetters] = useState<any[]>([])
+  const [regs, setRegs] = useState<any[]>([])
+  const [newReg, setNewReg] = useState('')
   const refresh = async () => {
+    setRegs(await api('GET', '/api/regulations'))
     setCourses(await api('GET', '/api/courses'))
     if (session.can('setter.assign')) setSetters(await api('GET', '/api/setters'))
   }
@@ -57,25 +61,57 @@ function UploadTab() {
     } catch (ex: any) { setMsg(m => ({ ...m, [kind]: { ok: false, text: ex.message } })) }
     e.target.value = ''
   }
+  const say = (k: string, ok: boolean, text: string) => setMsg(m => ({ ...m, [k]: { ok, text } }))
+  async function addReg() {
+    try { const r: any = await api('POST', '/api/regulations', { code: newReg }); setNewReg(''); say('regs', true, `Regulation ${r.code} added. Now create its QP framework (tab 3) and upload its courses.`); refresh() }
+    catch (ex: any) { say('regs', false, ex.message) }
+  }
+  async function delReg(r: any) {
+    if (!confirm(`Remove regulation ${r.code}?`)) return
+    try { await api('DELETE', `/api/regulations/${r.id}`); say('regs', true, `${r.code} removed.`); refresh() } catch (ex: any) { say('regs', false, ex.message) }
+  }
+  async function delCourse(c: any) {
+    if (!confirm(`Remove ${c.code} – ${c.title} and its unit syllabus?`)) return
+    try { await api('DELETE', `/api/courses/${c.id}`); say('courses', true, `${c.code} removed.`); refresh() } catch (ex: any) { say('courses', false, ex.message) }
+  }
   const Msg = ({ k }: { k: string }) => msg[k] ? <div className={`msg ${msg[k].ok ? 'ok' : 'err'}`}>{msg[k].text}</div> : null
 
   return (
     <>
       <div className="card"><h2>Upload data</h2>
         <p className="mu">Use the sample format exactly (same column names). Each file is validated row by row; rows with errors are listed and skipped.</p></div>
+      <div className="card"><h3>Regulations</h3>
+        <p className="mu">Add a regulation before uploading its courses or creating its QP framework. A regulation can be removed only while it has no courses and no framework.</p>
+        <div className="flex">
+          <input placeholder="e.g. R2025" value={newReg} onChange={e => setNewReg(e.target.value)} onKeyDown={e => e.key === 'Enter' && addReg()} style={{ width: 160 }} />
+          <button onClick={addReg} disabled={!newReg.trim()}>+ Add regulation</button>
+        </div>
+        <Msg k="regs" />
+        {regs.length > 0 && <div className="sc"><table><thead><tr><th>Regulation</th><th>Courses</th><th></th></tr></thead>
+          <tbody>{regs.map(r => {
+            const n = courses.filter(c => c.regulation === r.code).length
+            return <tr key={r.id}><td><b>{r.code}</b></td><td>{n}</td>
+              <td>{n === 0 && <button className="g sm" onClick={() => delReg(r)}>Remove</button>}</td></tr>
+          })}</tbody></table></div>}
+      </div>
       <div className="card"><h3>A. QP setter database</h3>
         <Sample h={['Name', 'Email', 'Mobile', 'DateOfBirth', 'Designation', 'Department', 'Institution', 'SetterType', 'ExperienceYears', 'Qualification', 'AreaOfInterest']}
                 r={['Dr. R. Anitha', 'anitha.r@demo.edu', '9876500001', '1978-03-12', 'Professor', 'CSE', 'Karpagam College of Engineering', 'Internal', '22', 'Ph.D.', 'algorithms, graph theory']} />
         <p><input type="file" accept=".xlsx" onChange={e => up(e, 'setters')} style={{ width: 'auto' }} /> <span className="mu">{setters.length} setters in database</span></p>
         <Msg k="setters" />
+        {setters.length > 0 && <details><summary>Show uploaded setters ({setters.length})</summary><div className="sc"><table>
+          <thead><tr><th>Name</th><th>Email</th><th>Designation</th><th>Department</th><th>Type</th><th>Exp.</th><th>Area of interest</th></tr></thead>
+          <tbody>{setters.map((s: any) => <tr key={s.id}><td>{s.name}</td><td>{s.email}</td><td>{s.designation}</td><td>{s.department}</td>
+            <td>{s.setterType}</td><td>{s.experienceYears}</td><td>{s.areaOfInterest}</td></tr>)}</tbody></table></div></details>}
       </div>
       <div className="card"><h3>B. Course code, title, regulation with unit syllabus (one row per unit)</h3>
         <Sample h={['Regulation', 'CourseCode', 'CourseTitle', 'UnitNo', 'UnitTitle', 'CO', 'Topics']}
                 r={['R2021', 'CS3401', 'Algorithms', '1', 'Introduction', 'Analyze time and space complexity', 'asymptotic notations, recurrence relations, ...']} />
         <p><input type="file" accept=".xlsx" onChange={e => up(e, 'courses')} style={{ width: 'auto' }} /> <span className="mu">{courses.length} courses loaded</span></p>
         <Msg k="courses" />
-        {courses.length > 0 && <div className="sc"><table><thead><tr><th>Code</th><th>Title</th><th>Regulation</th><th>Units</th></tr></thead>
-          <tbody>{courses.map(c => <tr key={c.id}><td>{c.code}</td><td>{c.title}</td><td>{c.regulation}</td><td>{c.units}</td></tr>)}</tbody></table></div>}
+        {courses.length > 0 && <details open><summary>Show uploaded courses ({courses.length})</summary><div className="sc"><table><thead><tr><th>Code</th><th>Title</th><th>Regulation</th><th>Units</th><th></th></tr></thead>
+          <tbody>{courses.map(c => <tr key={c.id}><td>{c.code}</td><td>{c.title}</td><td>{c.regulation}</td><td>{c.units}</td>
+            <td><button className="g sm" onClick={() => delCourse(c)}>Remove</button></td></tr>)}</tbody></table></div></details>}
       </div>
     </>
   )
@@ -128,9 +164,9 @@ function RegistrationsTab() {
 
 /* ---------------- 3. QP framework ---------------- */
 const DEF_PARTS = [
-  { partName: 'A', title: 'Short answer', distribution: 'PerUnit', questionCount: 2, marksEach: 2, isEitherOr: false },
-  { partName: 'B', title: 'Descriptive', distribution: 'PerUnit', questionCount: 1, marksEach: 13, isEitherOr: true },
-  { partName: 'C', title: 'Higher order / case', distribution: 'AnyUnit', questionCount: 1, marksEach: 15, isEitherOr: true },
+  { partName: 'A', title: 'Short answer', distribution: 'PerUnit', questionCount: 2, marksEach: 2, isEitherOr: false, maxSubdivisions: 0 },
+  { partName: 'B', title: 'Descriptive', distribution: 'PerUnit', questionCount: 1, marksEach: 13, isEitherOr: true, maxSubdivisions: 2 },
+  { partName: 'C', title: 'Higher order / case', distribution: 'AnyUnit', questionCount: 1, marksEach: 15, isEitherOr: true, maxSubdivisions: 2 },
 ]
 
 function FrameworkTab() {
@@ -150,7 +186,7 @@ function FrameworkTab() {
   const partTotal = (p: any) => (p.distribution === 'PerUnit' ? Number(p.questionCount) * 5 : Number(p.questionCount)) * Number(p.marksEach)
   const total = f.parts.reduce((a: number, p: any) => a + partTotal(p), 0)
   const setPart = (i: number, k: string, v: any) => setF({ ...f, parts: f.parts.map((p: any, j: number) => j === i ? { ...p, [k]: v } : p) })
-  const addPart = () => setF({ ...f, parts: [...f.parts, { partName: String.fromCharCode(65 + f.parts.length), title: '', distribution: 'PerUnit', questionCount: 1, marksEach: 10, isEitherOr: false }] })
+  const addPart = () => setF({ ...f, parts: [...f.parts, { partName: String.fromCharCode(65 + f.parts.length), title: '', distribution: 'PerUnit', questionCount: 1, marksEach: 10, isEitherOr: false, maxSubdivisions: 0 }] })
   const removePart = (i: number) => setF({ ...f, parts: f.parts.filter((_: any, j: number) => j !== i) })
 
   async function save() {
@@ -158,7 +194,7 @@ function FrameworkTab() {
     const body = {
       regulationId: Number(f.regulationId), examType: f.examType, name: f.name || `${reg?.code} ${f.examType}`,
       duration: f.duration, maxMarks: Number(f.maxMarks), instructions: f.instructions,
-      parts: f.parts.map((p: any) => ({ ...p, questionCount: Number(p.questionCount), marksEach: Number(p.marksEach) }))
+      parts: f.parts.map((p: any) => ({ ...p, questionCount: Number(p.questionCount), marksEach: Number(p.marksEach), maxSubdivisions: Number(p.maxSubdivisions || 0) }))
     }
     try {
       const t: any = f.id ? await api('PUT', `/api/templates/${f.id}`, body) : await api('POST', '/api/templates', body)
@@ -171,13 +207,14 @@ function FrameworkTab() {
   }
   const edit = (t: any) => setF({
     id: t.id, regulationId: t.regulationId, examType: t.examType, name: t.name, duration: t.duration, maxMarks: t.maxMarks,
-    instructions: t.instructions || '', parts: t.parts.map((p: any) => ({ partName: p.partName, title: p.title, distribution: p.distribution, questionCount: p.questionCount, marksEach: p.marksEach, isEitherOr: p.isEitherOr }))
+    instructions: t.instructions || '', parts: t.parts.map((p: any) => ({ partName: p.partName, title: p.title, distribution: p.distribution, questionCount: p.questionCount, marksEach: p.marksEach, isEitherOr: p.isEitherOr, maxSubdivisions: p.maxSubdivisions ?? 0 }))
   })
+  const copyAsNew = (t: any) => { edit(t); setF((x: any) => ({ ...x, id: null })); setMsg({ ok: true, text: 'Copied into the form as a new draft version. Change it, save, then publish.' }) }
 
   return (
     <>
       <div className="card"><h2>{f.id ? 'Edit draft framework' : 'New QP framework'}</h2>
-        <p className="mu">Each regulation has its own framework (e.g. Part A/B or Part A/B/C). "Per unit" counts are for each of the 5 units; "Any unit" counts are totals for the paper.</p>
+        <p className="mu">Each regulation has its own framework (e.g. Part A/B or Part A/B/C). "Per unit" counts are for each of the 5 units; "Any unit" counts are totals for the paper. "Sub-divisions" lets setters split a question into (i), (ii)… with their own marks.</p>
         <div className="cols">
           <label>Regulation<select value={f.regulationId} onChange={e => setF({ ...f, regulationId: e.target.value })}>
             {regs.map(r => <option key={r.id} value={r.id}>{r.code}</option>)}</select></label>
@@ -188,7 +225,7 @@ function FrameworkTab() {
         </div>
         <label style={{ marginTop: 8 }}>General instructions<input value={f.instructions} onChange={e => setF({ ...f, instructions: e.target.value })} /></label>
         <div className="sc" style={{ marginTop: 10 }}><table>
-          <thead><tr><th>Part</th><th>Title</th><th>Distribution</th><th>Questions</th><th>Marks each</th><th>Either / Or (a)(b)</th><th>Part total</th><th></th></tr></thead>
+          <thead><tr><th>Part</th><th>Title</th><th>Distribution</th><th>Questions</th><th>Marks each</th><th>Either / Or (a)(b)</th><th>Sub-divisions</th><th>Part total</th><th></th></tr></thead>
           <tbody>{f.parts.map((p: any, i: number) => (
             <tr key={i}>
               <td style={{ width: 60 }}><input value={p.partName} onChange={e => setPart(i, 'partName', e.target.value)} /></td>
@@ -198,6 +235,8 @@ function FrameworkTab() {
               <td style={{ width: 90 }}><input type="number" min={1} value={p.questionCount} onChange={e => setPart(i, 'questionCount', e.target.value)} /></td>
               <td style={{ width: 90 }}><input type="number" min={1} value={p.marksEach} onChange={e => setPart(i, 'marksEach', e.target.value)} /></td>
               <td style={{ textAlign: 'center' }}><input type="checkbox" style={{ width: 'auto' }} checked={p.isEitherOr} onChange={e => setPart(i, 'isEitherOr', e.target.checked)} /></td>
+              <td style={{ width: 150 }}><select value={p.maxSubdivisions ?? 0} onChange={e => setPart(i, 'maxSubdivisions', Number(e.target.value))}>
+                <option value={0}>Not allowed</option><option value={2}>Up to 2: (i), (ii)</option><option value={3}>Up to 3: (i)–(iii)</option><option value={4}>Up to 4: (i)–(iv)</option></select></td>
               <td>{partTotal(p)}</td>
               <td><button className="g" onClick={() => removePart(i)}>✕</button></td>
             </tr>))}</tbody></table></div>
@@ -214,10 +253,12 @@ function FrameworkTab() {
           <tbody>{list.map(t => (
             <tr key={t.id}>
               <td>{t.regulation}<br /><span className="mu">{t.examType}</span></td><td>{t.name} <span className="mu">v{t.version}</span></td>
-              <td>{t.parts.map((p: any) => <div key={p.partName}>Part {p.partName}: {p.totalQuestions} × {p.marksEach}{p.isEitherOr ? ' (either/or)' : ''} {p.distribution === 'PerUnit' ? '· per unit' : '· any unit'}</div>)}</td>
+              <td>{t.parts.map((p: any) => <div key={p.partName}>Part {p.partName}: {p.totalQuestions} × {p.marksEach}{p.isEitherOr ? ' (either/or)' : ''} {p.distribution === 'PerUnit' ? '· per unit' : '· any unit'}{p.maxSubdivisions >= 2 ? ` · up to ${p.maxSubdivisions} sub-divisions` : ''}</div>)}</td>
               <td>{t.total}</td>
               <td><span className={`b ${t.status === 'Published' ? 'ok' : t.status === 'Draft' ? 'warn' : ''}`}>{t.status}</span></td>
-              <td>{t.status === 'Draft' && <><button className="g" onClick={() => edit(t)}>Edit</button> <button className="okb" onClick={() => publish(t.id)}>Publish</button></>}</td>
+              <td>{t.status === 'Draft'
+                ? <><button className="g" onClick={() => edit(t)}>Edit</button> <button className="okb" onClick={() => publish(t.id)}>Publish</button></>
+                : <button className="g sm" onClick={() => copyAsNew(t)}>Copy as new version</button>}</td>
             </tr>))}
             {list.length === 0 && <tr><td colSpan={6} className="mu">No frameworks yet.</td></tr>}
           </tbody></table></div>
@@ -314,6 +355,7 @@ function MapTab() {
 
 /* ---------------- 6. Analysis ---------------- */
 function AnalysisTab() {
+  const nav = useNavigate()
   const [d, setD] = useState<any>(null)
   const [msg, setMsg] = useState('')
   useEffect(() => { api('GET', '/api/reports/status').then(setD).catch((e: any) => setMsg(e.message)) }, [])
@@ -324,6 +366,7 @@ function AnalysisTab() {
   const today = new Date(new Date().toDateString()).getTime()
   const daysLeft = (due: string) => Math.ceil((new Date(due).getTime() - today) / 864e5)
   const canExport = session.can('claim.export')
+  const canQp = session.can('paper.download')
   const dl = (url: string, name: string) => download(url, name).catch(e => setMsg(e.message))
 
   return (
@@ -341,7 +384,7 @@ function AnalysisTab() {
         {msg && <div className="msg err">{msg}</div>}
       </div>
       <div className="card sc"><table>
-        <thead><tr><th>Course</th><th>Setter</th><th>Deadline</th><th>QP status</th><th>Claim</th>{canExport && <th></th>}</tr></thead>
+        <thead><tr><th>Course</th><th>Setter</th><th>Deadline</th><th>QP status</th><th>Claim</th>{(canExport || canQp) && <th>Downloads</th>}</tr></thead>
         <tbody>{d.rows.map((r: any) => {
           const dd = daysLeft(r.dueDate)
           return (
@@ -353,7 +396,11 @@ function AnalysisTab() {
                 : <span className={`b ${dd < 0 ? 'bad' : 'warn'}`}>{dd < 0 ? `Overdue by ${-dd} d` : `Pending · ${dd} d left`}</span>}
                 {!r.inviteSent && <span className="b bad">link not sent</span>}</td>
               <td>{r.claimReceived ? <>₹{r.net}</> : <span className="mu">not received</span>}</td>
-              {canExport && <td>{r.claimReceived && <button className="g sm" onClick={() => dl(`/api/reports/claims/${r.id}/pdf`, `Claim_${r.course.split(' ')[0]}.pdf`)}>PDF</button>}</td>}
+              {(canExport || canQp) && <td>
+                {canQp && r.qpReceived && <><button className="g sm" onClick={() => nav(`/app/qp/${r.id}`)}>View QP / PDF</button>{' '}
+                  <button className="g sm" onClick={() => dl(`/api/papers/${r.id}/docx`, `QP_${r.course.split(' ')[0]}.docx`)}>QP Word</button>{' '}</>}
+                {canExport && r.claimReceived && <button className="g sm" onClick={() => dl(`/api/reports/claims/${r.id}/pdf`, `Claim_${r.course.split(' ')[0]}.pdf`)}>Claim PDF</button>}
+              </td>}
             </tr>)
         })}</tbody></table>
         {d.notMappedSubjects.length > 0 && <p className="mu">Subjects without a setter: {d.notMappedSubjects.join('; ')}</p>}

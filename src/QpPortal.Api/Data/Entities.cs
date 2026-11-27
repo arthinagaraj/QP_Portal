@@ -1,4 +1,4 @@
-namespace QpPortal.Api.Data;
+﻿namespace QpPortal.Api.Data;
 
 public class User
 {
@@ -105,6 +105,7 @@ public class QpTemplate
 
 public class QpTemplatePart
 {
+    public int MaxSubdivisions { get; set; }
     public int Id { get; set; }
     public int TemplateId { get; set; }
     public string PartName { get; set; } = "";
@@ -149,6 +150,7 @@ public class BankDetail
 
 public class Question
 {
+    public string SubLabel { get; set; } = "";
     public int Id { get; set; }
     public int AssignmentId { get; set; }
     public string PartName { get; set; } = "";
