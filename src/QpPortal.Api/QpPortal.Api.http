@@ -1,0 +1,6 @@
+@QpPortal.Api_HostAddress = http://localhost:5141
+
+GET {{QpPortal.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

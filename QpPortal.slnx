@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/QpPortal.Api/QpPortal.Api.csproj" />
+  </Folder>
+</Solution>
