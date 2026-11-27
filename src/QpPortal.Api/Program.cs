@@ -10,6 +10,7 @@ using QpPortal.Api.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+QpPortal.Api.Services.ClaimPdf.LogoPath = Path.Combine(builder.Environment.ContentRootPath, "Assets", "kce-logo.png");
 
 var cs = builder.Configuration.GetConnectionString("Db")
          ?? throw new InvalidOperationException("Connection string 'Db' is missing.");

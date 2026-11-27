@@ -7,6 +7,7 @@ namespace QpPortal.Api.Services;
 
 public static class ClaimPdf
 {
+    public static string? LogoPath { get; set; }
     public static byte[] Build(string course, string session, DateTime? submittedAt, User u, BankDetail b, QpClaim c)
     {
         return Document.Create(doc => doc.Page(page =>
@@ -17,8 +18,11 @@ public static class ClaimPdf
 
             page.Header().Column(col =>
             {
-                col.Item().AlignCenter().Text("[ College Name ]").FontSize(16).Bold();
-                col.Item().AlignCenter().Text("Office of the Controller of Examinations");
+                if (LogoPath is not null && File.Exists(LogoPath))
+                    col.Item().Height(55).AlignCenter().Image(LogoPath).FitArea();
+                else
+                    col.Item().AlignCenter().Text("Karpagam College of Engineering").FontSize(16).Bold();
+                col.Item().AlignCenter().Text("Coimbatore - Office of the Controller of Examinations");
                 col.Item().PaddingTop(8).AlignCenter().Text("REMUNERATION CLAIM - QUESTION PAPER SETTING").FontSize(12).Bold();
                 col.Item().PaddingTop(4).LineHorizontal(1);
             });

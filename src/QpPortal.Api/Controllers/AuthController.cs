@@ -14,7 +14,8 @@ namespace QpPortal.Api.Controllers;
 [Route("api/auth")]
 public class AuthController(AppDb db, IConfiguration config) : ControllerBase
 {
-    public record StaffLoginRequest(string Email, string Password);
+    public record LoginRequest(string LoginId, string Password);
+    static readonly string[] DobFormats = ["ddMMyyyy", "dd-MM-yyyy", "dd/MM/yyyy", "dd.MM.yyyy", "yyyy-MM-dd"];
     public record SetterLoginRequest(string LoginId, string DateOfBirth);
     public record LoginResponse(string Token, string Name, string[] Roles, string[] Permissions);
 
@@ -22,15 +23,31 @@ public class AuthController(AppDb db, IConfiguration config) : ControllerBase
         .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
             .ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission);
 
-    // Login 1: CoE / DCoE / HoD with e-mail + password
+        // Single login for everyone:
+    //  - exam cell (CoE / DCoE / HoD): e-mail or mobile + password
+    //  - QP setter: e-mail or mobile + date of birth (DDMMYYYY)
     [HttpPost("login")]
     [AllowAnonymous]
-    public async Task<ActionResult<LoginResponse>> Login(StaffLoginRequest req)
+    public async Task<ActionResult<LoginResponse>> Login(LoginRequest req)
     {
-        var user = await UsersWithPerms().FirstOrDefaultAsync(u => u.Email == req.Email.Trim());
-        if (user is null || !user.IsActive || user.PasswordHash is null
-            || !BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
-            return Unauthorized("Invalid e-mail or password.");
+        var id = (req.LoginId ?? "").Trim();
+        var pwd = (req.Password ?? "").Trim();
+        var user = await UsersWithPerms().FirstOrDefaultAsync(u => u.Email == id || u.Mobile == id);
+        if (user is null || !user.IsActive) return Unauthorized("Invalid login ID or password.");
+
+        bool ok;
+        if (user.PasswordHash is not null)
+            ok = BCrypt.Net.BCrypt.Verify(pwd, user.PasswordHash);
+        else
+            ok = user.DateOfBirth is not null
+                 && DateOnly.TryParseExact(pwd, DobFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
+                 && d == user.DateOfBirth;
+
+        if (!ok) return Unauthorized("Invalid login ID or password. QP setters: use your date of birth as DDMMYYYY.");
+        if (user.RegistrationStatus == "Pending")
+            return Unauthorized("Your registration is awaiting approval by the exam cell.");
+        if (user.RegistrationStatus == "Rejected")
+            return Unauthorized($"Your registration was not approved: {user.RejectionReason}");
         return Issue(user);
     }
 

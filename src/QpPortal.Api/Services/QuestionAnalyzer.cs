@@ -24,9 +24,16 @@ public static class QuestionAnalyzer
         return d;
     }
 
-    static readonly HashSet<string> Stop = new(("a an the of in on for to and or with is are be by from as at that this these those it its " +
-        "into using given which how why when where example examples suitable briefly neat diagram marks following any each " +
-        "about between their there then than also can does do give steps step consider problem show").Split(' '));
+    // Common words + generic question vocabulary: these never count as "deviation"
+    static readonly HashSet<string> Stop = new((
+        "a an the of in on for to and or with is are be by from as at that this these those it its into using given which how " +
+        "why when where example examples suitable briefly neat diagram diagrams marks following any each about between their there " +
+        "then than also can does do give steps step consider problem show " +
+        "detail details detailed mechanism mechanisms sequence handling objective objectives evolution importance significance " +
+        "advantages disadvantages merits demerits concept concepts various types type working principle principles features " +
+        "characteristics method methods approach block relevant appropriate need purpose brief short notes note role nature " +
+        "scope aspects overview basic basics different difference differences suitably necessary neatly sketch figure respect " +
+        "related along help means simple real world life").Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     static string Key(string w)
     {
@@ -49,25 +56,40 @@ public static class QuestionAnalyzer
         return d;
     }
 
-    static HashSet<string> UnitKeys(UnitInfo u) => Words(u.Title + " " + u.Topics).Select(Key).ToHashSet();
+    static List<string> TopicKeys(string phrase) =>
+        Words(phrase).Select(w => w.ToLowerInvariant()).Where(w => w.Length >= 3 && !Stop.Contains(w)).Select(Key).ToList();
+
+    // How well the question's subject terms fit one unit: keyword coverage + whole-topic matches
+    static (decimal Score, List<string> Matched, List<string> Topics) UnitScore(Dictionary<string, string> cw, UnitInfo u)
+    {
+        var unitKeys = Words(u.Title + " " + u.Topics).Select(Key).ToHashSet();
+        var matched = cw.Where(kv => unitKeys.Contains(kv.Key)).Select(kv => kv.Value).ToList();
+        var qKeys = cw.Keys.ToHashSet();
+
+        var topicHits = (u.Title + "," + u.Topics)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(t => { var tk = TopicKeys(t); return tk.Count > 0 && tk.All(qKeys.Contains); })
+            .Distinct().ToList();
+
+        decimal coverage = cw.Count == 0 ? 0 : (decimal)matched.Count / cw.Count;
+        decimal score = topicHits.Count > 0 ? Math.Max(coverage, Math.Min(1m, 0.5m + 0.1m * topicHits.Count)) : coverage;
+        return (Math.Round(score, 2), matched, topicHits);
+    }
 
     public static Analysis Analyze(string plain, string html, decimal marks, int unitNo, IList<UnitInfo> units)
     {
         var cw = ContentWords(plain);
         var target = units.FirstOrDefault(u => u.UnitNo == unitNo);
-        var tKeys = target is null ? new HashSet<string>() : UnitKeys(target);
-
-        var matched = cw.Where(kv => tKeys.Contains(kv.Key)).Select(kv => kv.Value).ToList();
-        var notIn = cw.Where(kv => !tKeys.Contains(kv.Key)).Select(kv => kv.Value).ToList();
-        decimal score = cw.Count == 0 ? 0 : Math.Round((decimal)matched.Count / cw.Count, 2);
+        var (score, matched, topics) = target is null ? (0m, new List<string>(), new List<string>()) : UnitScore(cw, target);
         var verdict = score >= 0.5m ? "In" : "Out";
+        var notIn = cw.Values.Where(v => !matched.Contains(v)).ToList();
+        var highlight = matched.Concat(topics.SelectMany(Words)).Distinct().ToList();
 
         int? better = null; decimal best = score;
         foreach (var u in units.Where(u => u.UnitNo != unitNo))
         {
-            var k = UnitKeys(u);
-            var s = cw.Count == 0 ? 0 : (decimal)cw.Keys.Count(k.Contains) / cw.Count;
-            if (s >= 0.5m && s > best + 0.15m) { best = s; better = u.UnitNo; }
+            var (s2, _, _) = UnitScore(cw, u);
+            if (s2 >= 0.5m && s2 > best + 0.15m) { best = s2; better = u.UnitNo; }
         }
 
         // BTL: highest-level action verb in the question; K2 if none
@@ -85,7 +107,7 @@ public static class QuestionAnalyzer
         if (verbs.Count == 0 && !plain.TrimEnd().EndsWith('?'))
             notes.Add("No action verb (explain, solve, design...) - state what the student must do.");
         var refersToData = Regex.IsMatch(plain,
-            @"\b(figure|graph shown|table below|given table|following table|following graph|following figure|shown below|given below)\b",
+            @"\b(graph shown|table below|given table|following table|following graph|following figure|figure shown|shown below|given below)\b",
             RegexOptions.IgnoreCase);
         var hasMedia = Regex.IsMatch(html ?? "", "<(img|table)", RegexOptions.IgnoreCase);
         if (refersToData && !hasMedia) notes.Add("Refers to a figure, table or data that is not included.");
@@ -93,9 +115,11 @@ public static class QuestionAnalyzer
         var clarity = notes.Count == 0 ? "Complete" : "Incomplete";
 
         if (verdict == "Out")
-            notes.Insert(0, $"Only {score * 100:0}% of the key terms are from the Unit {unitNo} syllabus (deviation above 50%).");
+            notes.Insert(0, cw.Count == 0
+                ? "No subject terms found - the question does not relate to any syllabus topic."
+                : $"No Unit {unitNo} syllabus topic found; only {score * 100:0}% of the subject terms are from this unit (deviation above 50%).");
         if (better is not null) notes.Add($"This question fits Unit {better} better.");
 
-        return new Analysis(btl, verb, score, verdict, better, clarity, notes, matched, notIn);
+        return new Analysis(btl, verb, score, verdict, better, clarity, notes, highlight, notIn);
     }
 }
