@@ -12,10 +12,12 @@ public static class Perms
     public const string ClaimExport        = "claim.export";
     public const string PaperEdit          = "paper.edit";
     public const string PaperDownload = "paper.download";
+    public const string ScrutinyAssign = "scrutiny.assign";
+public const string ScrutinyReview = "scrutiny.review";
 
     public static readonly string[] All =
     [
         SetterUpload, FacultyApprove, CourseUpload, InstructionsManage, TemplateManage,
-        SetterAssign, ReportView, ClaimExport, PaperEdit, PaperDownload
+        SetterAssign, ReportView, ClaimExport, PaperEdit, PaperDownload, ScrutinyAssign,ScrutinyReview 
     ];
 }

@@ -13,9 +13,9 @@ namespace QpPortal.Api.Controllers;
 [Authorize(Policy = Perms.PaperDownload)]
 public class PapersController(AppDb db, IWebHostEnvironment env) : ControllerBase
 {
-    const string College = "KARPAGAM COLLEGE OF ENGINEERING, COIMBATORE";
+    public const string College = "KARPAGAM COLLEGE OF ENGINEERING, COIMBATORE";
 
-    async Task<(Assignment A, List<QpPart> Parts)?> Load(int id)
+    public static async Task<(Assignment A, List<QpPart> Parts)?> Load(AppDb db, int id)
     {
         var a = await db.Assignments
             .Include(x => x.Course).ThenInclude(c => c.Units)
@@ -48,26 +48,28 @@ public class PapersController(AppDb db, IWebHostEnvironment env) : ControllerBas
         return (a, parts);
     }
 
-    [HttpGet("{id:int}")]
-    public async Task<IActionResult> Get(int id)
-    {
-        var r = await Load(id);
-        if (r is null) return NotFound();
-        var (a, parts) = r.Value;
-        if (a.Status != "Submitted") return BadRequest("The question paper has not been submitted by the setter yet.");
-        return Ok(new
+    // JSON for the on-screen paper (also used by the scrutiny page)
+    public static object PaperView(Assignment a, List<QpPart> parts, bool showSetter = true) => new
         {
             a.Id, College, ExamLine = $"{a.Template.ExamType} Examinations – {a.ExamSession}",
             Course = new { a.Course.Code, a.Course.Title }, Regulation = a.Template.Regulation!.Code,
             a.Template.Duration, a.Template.MaxMarks, a.Template.Instructions,
-            Setter = a.Setter.Name, a.Setter.SetterType, a.SubmittedAt, Parts = parts
-        });
+            Setter = showSetter ? a.Setter.Name : "(hidden for scrutiny)", SetterType = showSetter ? a.Setter.SetterType : "", a.SubmittedAt, Parts = parts
+        };
+
+    [HttpGet("{id:int}")]
+    public async Task<IActionResult> Get(int id)
+    {
+        var r = await Load(db, id);
+        if (r is null) return NotFound();
+        if (r.Value.A.Status != "Submitted") return BadRequest("The question paper has not been submitted by the setter yet.");
+        return Ok(PaperView(r.Value.A, r.Value.Parts));
     }
 
     [HttpGet("{id:int}/docx")]
     public async Task<IActionResult> Docx(int id)
     {
-        var r = await Load(id);
+        var r = await Load(db, id);
         if (r is null) return NotFound();
         var (a, parts) = r.Value;
         if (a.Status != "Submitted") return BadRequest("The question paper has not been submitted by the setter yet.");

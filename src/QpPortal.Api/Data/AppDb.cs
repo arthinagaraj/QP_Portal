@@ -20,6 +20,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<Question> Questions => Set<Question>();
     public DbSet<ClaimRate> ClaimRates => Set<ClaimRate>();
     public DbSet<QpClaim> Claims => Set<QpClaim>();
+    public DbSet<Scrutiny> Scrutinies => Set<Scrutiny>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder c) =>
         c.Properties<decimal>().HavePrecision(10, 2);

@@ -6,11 +6,21 @@ import { api, download } from '../api'
 
 // Exam cell view of a submitted question paper: Word (editable) download and PDF (print) download
 export default function QpView() {
-  const { id } = useParams()
+  const { id, sid } = useParams()          // id = CoE view; sid = scrutiny (read-only) view
   const nav = useNavigate()
   const [d, setD] = useState<any>(null)
+  const [sc, setSc] = useState<any>(null)
   const [err, setErr] = useState('')
-  useEffect(() => { api('GET', `/api/papers/${id}`).then(setD).catch((e: any) => setErr(e.message)) }, [id])
+  const [remarks, setRemarks] = useState('')
+  const [done, setDone] = useState('')
+  useEffect(() => {
+    if (sid) api('GET', `/api/scrutiny/${sid}/paper`).then((r: any) => { setD(r.paper); setSc(r.scrutiny); setRemarks(r.scrutiny.remarks || '') }).catch((e: any) => setErr(e.message))
+    else api('GET', `/api/papers/${id}`).then(setD).catch((e: any) => setErr(e.message))
+  }, [id, sid])
+  async function review(status: string) {
+    try { await api('POST', `/api/scrutiny/${sid}/review`, { status, remarks }); setSc({ ...sc, status, remarks }); setDone(status === 'Approved' ? 'Approved – the CoE can see it in Analysis.' : 'Remarks sent to the CoE.') }
+    catch (e: any) { setErr(e.message) }
+  }
 
   if (err) return <div className="card"><div className="msg err">{err}</div><button className="g" onClick={() => nav(-1)}>← Back</button></div>
   if (!d) return <div className="card">Loading…</div>
@@ -21,13 +31,26 @@ export default function QpView() {
 
   return (
     <>
-      <div className="card noprint flex">
-        <button className="g" onClick={() => nav(-1)}>← Back</button>
-        <button className="or" onClick={word}>⬇ Download Word (editable)</button>
-        <button onClick={() => window.print()}>⬇ Download PDF / Print</button>
-        <span className="mu">For PDF choose "Save as PDF" as the printer. Setter: {d.setter} ({d.setterType}) · submitted {d.submittedAt ? new Date(d.submittedAt).toLocaleString('en-IN') : ''}</span>
-      </div>
-      <div className="card qp">
+      {sid ? (
+        <div className="card noprint">
+          <div className="flex"><button className="g" onClick={() => nav(-1)}>← Back</button>
+            <b>Scrutiny</b><span className="mu">Status: {sc?.status === 'ChangesRequested' ? 'Changes requested' : sc?.status}</span></div>
+          <label>Remarks / changes required (question numbers, corrections)
+            <textarea rows={3} value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="e.g. Q12(b) is outside Unit 2 syllabus; Q3 and Q7 are similar." /></label>
+          <div className="flex" style={{ marginTop: 6 }}>
+            <button onClick={() => review('Approved')}>✓ Approve</button>
+            <button className="or" onClick={() => review('ChangesRequested')}>Return with changes</button>
+            {done && <span className="ok">{done}</span>}
+          </div>
+        </div>
+      ) : (
+        <div className="card noprint flex">
+          <button className="g" onClick={() => nav(-1)}>← Back</button>
+          <button className="or" onClick={word}>⬇ Download Word (editable)</button>
+          <button onClick={() => window.print()}>⬇ Download PDF / Print</button>
+          <span className="mu">For PDF choose "Save as PDF" as the printer. Setter: {d.setter} ({d.setterType}) · submitted {d.submittedAt ? new Date(d.submittedAt).toLocaleString('en-IN') : ''}</span>
+        </div>)}
+      <div className={`card qp${sid ? ' noprint' : ''}`}>
         <div style={c}>
           <img src="/kce-logo.png" alt="" style={{ height: 60, maxWidth: '100%' }} />
           <div style={{ fontWeight: 700, fontSize: 16, marginTop: 6 }}>{d.college}</div>

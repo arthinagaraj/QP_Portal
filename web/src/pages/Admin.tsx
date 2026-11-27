@@ -10,6 +10,7 @@ const TABS = [
   { k: 'ins', l: '4 · Instructions', p: 'instructions.manage' },
   { k: 'map', l: '5 · Suggest & map', p: 'setter.assign' },
   { k: 'an', l: '6 · Analysis', p: 'report.view' },
+  { k: 'scr', l: '7 · Scrutiny', p: 'scrutiny.review' },
 ]
 
 export default function Admin() {
@@ -26,6 +27,7 @@ export default function Admin() {
       {tab === 'ins' && <InstructionsTab />}
       {tab === 'map' && <MapTab />}
       {tab === 'an' && <AnalysisTab />}
+      {tab === 'scr' && <ScrutinyTab />}
     </>
   )
 }
@@ -358,7 +360,21 @@ function AnalysisTab() {
   const nav = useNavigate()
   const [d, setD] = useState<any>(null)
   const [msg, setMsg] = useState('')
-  useEffect(() => { api('GET', '/api/reports/status').then(setD).catch((e: any) => setMsg(e.message)) }, [])
+  const canScr = session.can('scrutiny.assign')
+  const [reviewers, setReviewers] = useState<any[]>([])
+  const [scr, setScr] = useState<any[]>([])
+  const [pick, setPick] = useState<Record<number, string>>({})
+  const loadScr = () => api('GET', '/api/scrutiny').then(setScr).catch(() => { })
+  useEffect(() => {
+    api('GET', '/api/reports/status').then(setD).catch((e: any) => setMsg(e.message))
+    if (canScr) { api('GET', '/api/scrutiny/reviewers').then(setReviewers).catch(() => { }); loadScr() }
+  }, [])
+  async function sendScr(assignmentId: number) {
+    const reviewerId = Number(pick[assignmentId] || reviewers[0]?.id)
+    try { await api('POST', '/api/scrutiny', { assignmentId, reviewerId }); setMsg(''); loadScr() } catch (e: any) { setMsg(e.message) }
+  }
+  const SCR: Record<string, string> = { Pending: 'warn', Approved: 'ok', ChangesRequested: 'bad' }
+  const SCRT: Record<string, string> = { Pending: 'With reviewer', Approved: 'Approved', ChangesRequested: 'Changes requested' }
   if (!d) return <div className="card">{msg || 'Loading…'}</div>
 
   const s = d.summary
@@ -384,7 +400,7 @@ function AnalysisTab() {
         {msg && <div className="msg err">{msg}</div>}
       </div>
       <div className="card sc"><table>
-        <thead><tr><th>Course</th><th>Setter</th><th>Deadline</th><th>QP status</th><th>Claim</th>{(canExport || canQp) && <th>Downloads</th>}</tr></thead>
+        <thead><tr><th>Course</th><th>Setter</th><th>Deadline</th><th>QP status</th><th>Claim</th>{canScr && <th>Scrutiny</th>}{(canExport || canQp) && <th>Downloads</th>}</tr></thead>
         <tbody>{d.rows.map((r: any) => {
           const dd = daysLeft(r.dueDate)
           return (
@@ -396,6 +412,19 @@ function AnalysisTab() {
                 : <span className={`b ${dd < 0 ? 'bad' : 'warn'}`}>{dd < 0 ? `Overdue by ${-dd} d` : `Pending · ${dd} d left`}</span>}
                 {!r.inviteSent && <span className="b bad">link not sent</span>}</td>
               <td>{r.claimReceived ? <>₹{r.net}</> : <span className="mu">not received</span>}</td>
+              {canScr && <td style={{ minWidth: 220 }}>
+                {scr.filter(x => x.assignmentId === r.id).map(x => (
+                  <div key={x.id} style={{ marginBottom: 4 }}>
+                    <span className={`b ${SCR[x.status]}`}>{SCRT[x.status]}</span> <span className="mu">{x.reviewer}</span>
+                    {x.remarks && <div className="mu" style={{ fontSize: 12 }}>“{x.remarks}”</div>}
+                  </div>))}
+                {r.qpReceived ? (reviewers.length ? <div className="flex noprint">
+                  <select value={pick[r.id] ?? ''} onChange={e => setPick({ ...pick, [r.id]: e.target.value })} style={{ width: 'auto' }}>
+                    {reviewers.map(v => <option key={v.id} value={v.id}>{v.name} ({v.role}{v.department ? ' · ' + v.department : ''})</option>)}
+                  </select>
+                  <button className="g sm" onClick={() => sendScr(r.id)}>Send for scrutiny</button></div>
+                  : <span className="mu">no DCoE / HoD users</span>) : <span className="mu">after QP is received</span>}
+              </td>}
               {(canExport || canQp) && <td>
                 {canQp && r.qpReceived && <><button className="g sm" onClick={() => nav(`/app/qp/${r.id}`)}>View QP / PDF</button>{' '}
                   <button className="g sm" onClick={() => dl(`/api/papers/${r.id}/docx`, `QP_${r.course.split(' ')[0]}.docx`)}>QP Word</button>{' '}</>}
@@ -407,4 +436,28 @@ function AnalysisTab() {
       </div>
     </>
   )
+}
+
+/* ---------------- 7. Scrutiny (DCoE / HoD) ---------------- */
+function ScrutinyTab() {
+  const nav = useNavigate()
+  const [rows, setRows] = useState<any[] | null>(null)
+  const [msg, setMsg] = useState('')
+  useEffect(() => { api('GET', '/api/scrutiny/mine').then(setRows).catch((e: any) => setMsg(e.message)) }, [])
+  const SCR: Record<string, string> = { Pending: 'warn', Approved: 'ok', ChangesRequested: 'bad' }
+  const SCRT: Record<string, string> = { Pending: 'To review', Approved: 'Approved', ChangesRequested: 'Changes requested' }
+  return (
+    <div className="card"><h2>Question papers sent to me for scrutiny</h2>
+      <p className="mu">Read the paper, then approve it or return the changes needed to the CoE. The setter's identity is hidden and papers cannot be downloaded.</p>
+      {msg && <div className="msg err">{msg}</div>}
+      {rows && rows.length === 0 && <p className="mu">Nothing assigned to you yet.</p>}
+      {rows && rows.length > 0 && <div className="sc"><table>
+        <thead><tr><th>Course</th><th>Sent on</th><th>Status</th><th></th></tr></thead>
+        <tbody>{rows.map(r => <tr key={r.id}>
+          <td><b>{r.code}</b> {r.title}<br /><span className="mu">{r.examSession}</span></td>
+          <td>{new Date(r.assignedAt).toLocaleDateString('en-IN')}</td>
+          <td><span className={`b ${SCR[r.status]}`}>{SCRT[r.status]}</span>{r.remarks && <div className="mu" style={{ fontSize: 12 }}>“{r.remarks}”</div>}</td>
+          <td><button className="sm" onClick={() => nav(`/app/scrutiny/${r.id}`)}>{r.status === 'Pending' ? 'Open & review' : 'Open'}</button></td>
+        </tr>)}</tbody></table></div>}
+    </div>)
 }

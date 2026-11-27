@@ -31,6 +31,7 @@ export default function App() {
           <Route path="my" element={<MyAssignments />} />
           <Route path="paper/:id" element={<Paper />} />
           <Route path="qp/:id" element={<QpView />} />
+          <Route path="scrutiny/:sid" element={<QpView />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
