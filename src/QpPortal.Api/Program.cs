@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using QpPortal.Api.Auth;
 using QpPortal.Api.Data;
+using QpPortal.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,6 +41,7 @@ foreach (var p in Perms.All)
     authz.AddPolicy(p, policy => policy.RequireClaim("perm", p));
 
 builder.Services.AddControllers();
+builder.Services.AddScoped<EmailService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

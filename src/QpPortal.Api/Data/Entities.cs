@@ -81,3 +81,56 @@ public class SyllabusUnit
     public string CoText { get; set; } = "";
     public string Topics { get; set; } = "";
 }
+public class Setting
+{
+    public string Key { get; set; } = "";
+    public string Value { get; set; } = "";
+}
+
+public class QpTemplate
+{
+    public int Id { get; set; }
+    public int RegulationId { get; set; }
+    public Regulation Regulation { get; set; } = null!;
+    public string ExamType { get; set; } = "End Semester";
+    public string Name { get; set; } = "";
+    public string Duration { get; set; } = "3 Hours";
+    public decimal MaxMarks { get; set; }
+    public string? Instructions { get; set; }
+    public int Version { get; set; } = 1;
+    public string Status { get; set; } = "Draft";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public List<QpTemplatePart> Parts { get; set; } = new();
+}
+
+public class QpTemplatePart
+{
+    public int Id { get; set; }
+    public int TemplateId { get; set; }
+    public string PartName { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Distribution { get; set; } = "PerUnit";
+    public int QuestionCount { get; set; }
+    public decimal MarksEach { get; set; }
+    public bool IsEitherOr { get; set; }
+    public int DisplayOrder { get; set; }
+}
+
+public class Assignment
+{
+    public int Id { get; set; }
+    public int CourseId { get; set; }
+    public Course Course { get; set; } = null!;
+    public int SetterId { get; set; }
+    public User Setter { get; set; } = null!;
+    public int TemplateId { get; set; }
+    public QpTemplate Template { get; set; } = null!;
+    public string ExamSession { get; set; } = "";
+    public DateOnly DueDate { get; set; }
+    public string Status { get; set; } = "Assigned";
+    public string LinkToken { get; set; } = "";
+    public int AssignedBy { get; set; }
+    public DateTime AssignedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? InviteSentAt { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+}
