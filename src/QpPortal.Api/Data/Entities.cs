@@ -53,3 +53,31 @@ public class RolePermission
     public int PermissionId { get; set; }
     public Permission Permission { get; set; } = null!;
 }
+public class Regulation
+{
+    public int Id { get; set; }
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool IsActive { get; set; } = true;
+}
+
+public class Course
+{
+    public int Id { get; set; }
+    public string Code { get; set; } = "";
+    public string Title { get; set; } = "";
+    public int RegulationId { get; set; }
+    public Regulation Regulation { get; set; } = null!;
+    public bool IsActive { get; set; } = true;
+    public List<SyllabusUnit> Units { get; set; } = new();
+}
+
+public class SyllabusUnit
+{
+    public int Id { get; set; }
+    public int CourseId { get; set; }
+    public int UnitNo { get; set; }
+    public string Title { get; set; } = "";
+    public string CoText { get; set; } = "";
+    public string Topics { get; set; } = "";
+}
